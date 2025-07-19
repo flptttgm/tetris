@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Tetris – Canvas</title>
+<style>
+body{
+  margin:0;
+  background:#0a0a0a;   /* quase preto */
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  height:100vh;
+  font-family:Segoe UI,Helvetica,Arial,sans-serif;
+  color:#fff;
+}
+  #game   {position:relative}
+  #score  {position:absolute;top:10px;left:10px;font-size:20px}
+  #next   {position:absolute;top:50px;left:10px;font-size:16px}
+  #over   {position:absolute;inset:0;background:#000d;display:flex;flex-direction:column;justify-content:center;align-items:center;font-size:28px;display:none}
+  button  {margin-top:20px;padding:10px 20px;font-size:18px;border:none;border-radius:6px;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="game">
+  <canvas id="board" width="300" height="600"></canvas>
+  <div id="score">Pontos: 0</div>
+  <div id="next">Próxima:</div>
+  <div id="over">
+    Game Over<br>
+    <button onclick="restart()">Reiniciar</button>
+  </div>
+</div>
+
+<script>
+/* ---------- CONFIGURAÇÕES ---------- */
+const COLS = 10, ROWS = 20, B = 30;          // tamanho do bloco (px)
+const CV = document.getElementById('board');
+const CX = CV.getContext('2d');
+const SC = document.getElementById('score');
+const NX = document.getElementById('next');
+const OV = document.getElementById('over');
+
+/* Cores modernas */
+const PALETTE = [
+  '#00f5ff','#fffa00','#c000ff','#00ff3c',
+  '#ff0040','#0060ff','#ff8c00'
+];
+
+/* Tetrominos (rotações pré-calculadas) */
+/* ---------- TETROMINOS (todas as rotações) ---------- */
+const PIECES = [
+  [                                            // I – 4 rotações
+    [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+    [[0,1,0,0],[0,1,0,0],[0,1,0,0],[0,1,0,0]]
+  ],
+  [ [[1,1],[1,1]] ],                           // O – igual em todas
+  [                                            // T
+    [[0,1,0],[1,1,1]],
+    [[1,0],[1,1],[1,0]],
+    [[1,1,1],[0,1,0]],
+    [[0,1],[1,1],[0,1]]
+  ],
+  [                                            // S
+    [[0,1,1],[1,1,0]],
+    [[1,0],[1,1],[0,1]]
+  ],
+  [                                            // Z
+    [[1,1,0],[0,1,1]],
+    [[0,1],[1,1],[1,0]]
+  ],
+  [                                            // J
+    [[1,0,0],[1,1,1]],
+    [[1,1],[1,0],[1,0]],
+    [[1,1,1],[0,0,1]],
+    [[0,1],[0,1],[1,1]]
+  ],
+  [                                            // L
+    [[0,0,1],[1,1,1]],
+    [[1,0],[1,0],[1,1]],
+    [[1,1,1],[1,0,0]],
+    [[1,1],[0,1],[0,1]]
+  ]
+];
+
+let board, piece, next, dropT, score, level, over;
+
+/* ---------- FUNÇÕES ---------- */
+function createBoard() { return Array.from({length:ROWS},()=>Array(COLS).fill(-1)); }
+
+function randPiece() {
+  const id = Math.floor(Math.random()*PIECES.length);
+  return { id, x:3, y:0, rot:0, matrix:PIECES[id][0] };
+}
+
+function drawBlock(x,y,color,ghost=false) {
+  CX.fillStyle = ghost ? '#ffffff22' : PALETTE[color];
+  CX.fillRect(x*B,y*B,B,B);
+  CX.strokeStyle = ghost ? '#ffffff77' : '#000';
+  CX.strokeRect(x*B,y*B,B,B);
+}
+
+function drawMatrix(mat,x0,y0,color,ghost=false) {
+  mat.forEach((row,y)=>row.forEach((cell,x)=>{
+    if(cell) drawBlock(x0+x,y0+y,color,ghost);
+  }));
+}
+
+function drawBoard() {
+  CX.fillStyle='#222831';   /* cinza-azulado bem visível */
+  CX.fillRect(0,0,CV.width,CV.height);
+  board.forEach((row,y)=>row.forEach((c,x)=>{
+    if(c!==-1) drawBlock(x,y,c);
+  }));
+}
+
+function drawGhost() {
+  let y=piece.y;
+  while(!collide(piece.x,++y,piece.matrix));
+  drawMatrix(piece.matrix,piece.x,y-1,piece.id,true);
+}
+
+function collide(x,y,mat) {
+  for(let r=0;r<mat.length;r++)
+    for(let c=0;c<mat[r].length;c++)
+      if(mat[r][c] && (board[y+r]?.[x+c]!==-1)) return true;
+  return false;
+}
+
+function placePiece() {
+  piece.matrix.forEach((row,y)=>row.forEach((cell,x)=>{
+    if(cell) board[piece.y+y][piece.x+x]=piece.id;
+  }));
+  // limpar linhas
+  let lines=0;
+  outer: for(let y=ROWS-1;y>=0;y--){
+    for(let x=0;x<COLS;x++) if(board[y][x]===-1) continue outer;
+    board.splice(y,1); board.unshift(Array(COLS).fill(-1));
+    lines++; y++;
+  }
+  if(lines){
+    score += [0,40,100,300,1200][lines]*(level+1);
+    level = Math.floor(score/1000);
+    dropT = Math.max(50,500-level*50);
+  }
+  piece = next; next = randPiece();
+  if(collide(piece.x,piece.y,piece.matrix)) over=true;
+}
+
+function rotate(dir){
+  const rot = (piece.rot+dir+PIECES[piece.id].length)%PIECES[piece.id].length;
+  const mat = PIECES[piece.id][rot];
+  if(!collide(piece.x,piece.y,mat)){
+    piece.rot = rot;
+    piece.matrix = mat;
+  }
+}
+
+function move(dx){
+  if(!collide(piece.x+dx,piece.y,piece.matrix)) piece.x += dx;
+}
+
+function drop(){
+  if(!collide(piece.x,piece.y+1,piece.matrix)) piece.y++;
+  else { placePiece(); }
+}
+
+function hardDrop(){
+  while(!collide(piece.x,piece.y+1,piece.matrix)) piece.y++;
+  drop();
+}
+
+function draw() {
+  drawBoard();
+  if(!over){
+    drawGhost();
+    drawMatrix(piece.matrix,piece.x,piece.y,piece.id);
+  }
+  // mini-preview
+  CX.fillStyle='#111';
+  CX.fillRect(COLS*B+10,0,100,6*B);
+  CX.fillStyle='#fff';
+  CX.font='16px sans-serif';
+  CX.fillText('Próxima',COLS*B+15,20);
+  drawMatrix(next.matrix,COLS*B+15,30/B,next.id);
+  SC.textContent='Pontos: '+score+'  Nível: '+level;
+}
+
+function update(time){
+  if(!last) last=time;
+  elapsed += time-last;
+  last=time;
+  if(elapsed > dropT){
+    if(!over) drop();
+    elapsed=0;
+  }
+  draw();
+  if(over) OV.style.display='flex';
+  else requestAnimationFrame(update);
+}
+
+function restart(){
+  board=createBoard();
+  piece = randPiece();
+  next  = randPiece();
+  score=level=0;
+  dropT=500;
+  over=false;
+  OV.style.display='none';
+  last=elapsed=0;
+  requestAnimationFrame(update);
+}
+
+/* ---------- CONTROLES ---------- */
+let last,elapsed=0;
+window.addEventListener('keydown',e=>{
+  if(over) return;
+  if(e.code==='ArrowLeft') move(-1);
+  if(e.code==='ArrowRight') move(1);
+  if(e.code==='ArrowDown') { drop(); elapsed=0; }
+  if(e.code==='ArrowUp') rotate(1);
+  if(e.code==='Space') { hardDrop(); elapsed=0; }
+});
+
+/* ---------- INICIAR ---------- */
+restart();
+</script>
+</body>
+</html>
